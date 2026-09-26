@@ -108,11 +108,7 @@ def _read_content(value: str) -> str:
 
 async def _run_agent(content: str, stream: bool) -> None:
     agent: PhishingDetectionAgent = build_phishing_agent()
-    await agent.aprint_response(message=content, stream=stream)
-
-    print(f"agentos_host      : {settings.agentos_host}")
-    print(f"agentos_port      : {settings.agentos_port}")
-    print(f"agentos_db_path   : {settings.agentos_db_path}")
+    await agent.aprint_response(input=content, stream=stream)
 
 def _run_detect(content: str) -> None:
     detector = build_laya_detector()

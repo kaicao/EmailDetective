@@ -99,11 +99,35 @@ class PhishingDetectionAgent:
     def config(self) -> PhishingAgentConfig:
         return self._config
 
-    async def aprint_response(self, message: str, stream: bool = True) -> None:
-        await self._agent.aprint_response(message=message, stream=stream)
+    async def aprint_response(
+        self,
+        input: str,
+        *,
+        stream: bool = True,
+        session_id: str | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        await self._agent.aprint_response(
+            input=input,
+            stream=stream,
+            session_id=session_id,
+            user_id=user_id,
+        )
 
-    def print_response(self, message: str, stream: bool = True) -> None:
-        self._agent.print_response(message=message, stream=stream)
+    def print_response(
+        self,
+        input: str,
+        *,
+        stream: bool = True,
+        session_id: str | None = None,
+        user_id: str | None = None,
+    ) -> None:
+        self._agent.print_response(
+            input=input,
+            stream=stream,
+            session_id=session_id,
+            user_id=user_id,
+        )
 
 
 def build_phishing_agent(

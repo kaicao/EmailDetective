@@ -114,17 +114,31 @@ echo "Click here to verify your account: http://paypa1.example/verify" \
 
 You'll get a one-shot score (no streaming, no model round-trip):
 
-```
+```text
 is_phishing     : True
-probability     : 0.87
-confidence      : 0.71
+probability     : 0.9290
+confidence      : 0.9290
 threshold       : 0.50
 routed_model    : english
-routing_reason  : Latin script and looks English
+routing_reason  : English Latin text
 ```
 
+What each field means:
+
+| Field | Meaning |
+|---|---|
+| `is_phishing` | `True` if `probability ≥ threshold`. |
+| `probability` | Calibrated `P(true)` from Laya's `noul` question (0–1). |
+| `confidence` | Laya's own confidence in that probability — lower means the input is unusual. |
+| `threshold` | `PHISHING_THRESHOLD` from `.env` (default `0.50`). |
+| `routed_model` | Which Laya checkpoint the Router picked (`english`, `multilingual`, …). |
+| `routing_reason` | Why the Router chose that checkpoint (script/language detection). |
+
 The first call downloads the Laya checkpoint from the Hugging Face Hub
-(~421 MB for `laya`, ~322 MB for `laya-multilingual`).
+(~421 MB for `laya`, ~322 MB for `laya-multilingual`). A
+`RuntimeWarning: ... temperatures outside [0.5, 5]` may print on the
+first invocation — that comes from the upstream `laya` package and
+does not affect the verdict.
 
 ### 6. Run the full Agno agent
 
@@ -139,11 +153,51 @@ The agent will (a) decide which Laya checkpoint to use, (b) call the
 `laya_predict` MCP tool with a typed `noul` phishing question, and (c)
 write a markdown verdict explaining the strongest phishing signals.
 
+A real run on the input above produces (trimmed):
+
+```text
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Verdict                                                                     ┃
+┃                                                                             ┃
+┃ Phishing — strong, multi-signal match. P(phishing) ≈ 0.93 (Laya),           ┃
+┃ confidence 0.93, well above the 0.50 threshold.                             ┃
+┃                                                                             ┃
+┃                                                                             ┃
+┃ Strongest phishing signals                                                  ┃
+┃                                                                             ┃
+┃  1 Lookalike sender domain — paypa1-security.com swaps "1" for "l" in       ┃
+┃    "paypal"; the real domain is paypal.com.                                 ┃
+┃  2 Lookalike URL host — paypa1-login.example again uses "1" for "l" and      ┃
+┃    lives on the unrelated .example TLD.                                     ┃
+┃  3 Urgency / account-suspension pressure — "URGENT - Verify… to keep your   ┃
+┃    account active" is a textbook fear-and-urgency lure.                     ┃
+┃  4 Credential-harvesting call-to-action — the single ask is to click a      ┃
+┃    verification link on an attacker-controlled page.                        ┃
+┃  5 Brand impersonation — pretends to be PayPal support with no account      ┃
+┃    reference, no personalization, and no signed headers.                    ┃
+┃                                                                             ┃
+┃ Recommended action                                                          ┃
+┃                                                                             ┃
+┃ Do not click the link; report to spoof@paypal.com and delete. Human review  ┃
+┃ not required — the calibrated Laya score plus the visible signals are       ┃
+┃ unambiguous.                                                                ┃
+┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
+```
+
+If `laya_predict` ever fails inside the MCP tool, the agent degrades
+gracefully: it logs a "human review recommended" caveat in the verdict
+and falls back to a content-only heuristic with the same field layout.
+
 For a saved file:
 
 ```bash
 emaildetective agent ./suspicious_email.txt
 ```
+
+To get the plain JSON response instead of the rich markdown box
+(useful for scripting), pipe through `--no-stream` and read the
+non-TUI stream — or call the REST endpoint, see
+[Serving over REST (AgentOS)](#serving-over-rest-agentos).
 
 ### 7. Skip the LLM and serve the detector over REST
 
