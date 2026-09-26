@@ -10,6 +10,20 @@ fast typed-decision engine, talks to Laya through the
 content ──► Agno Agent (Ollama) ──► MCPTools (Laya MCP server) ──► Laya Router ──► verdict
 ```
 
+## Contents
+
+- [Layout](#layout) — file map of the `emaildetective` package.
+- [Quick start (first-time user)](#quick-start-first-time-user) — install,
+  configure `.env`, and run `detect` / `agent` from the CLI.
+- [Serving over REST (AgentOS)](#serving-over-rest-agentos) — run the
+  FastAPI service and call `/agents/{id}/runs` from curl or the
+  Python client.
+- [Laya & System 1](#laya--system-1) — what System 1 models are, why
+  Laya uses `noul`, and how the MCP tools plug into Agno.
+- [System 1 + System 2 collaboration](#system-1--system-2-collaboration)
+  — how Laya and the LLM split responsibilities in the agent loop,
+  with a flow diagram.
+
 ## Layout
 
 ```
@@ -352,3 +366,90 @@ the agent:
 The LLM (System 2) handles the explanation and the routing. Laya (System 1)
 handles the verdict. The result is faster, cheaper, and harder to
 hallucinate than asking the LLM to "decide if this is phishing".
+
+---
+
+## System 1 + System 2 collaboration
+
+EmailDetective treats Laya and the LLM as a deliberate
+**System 1 ↔ System 2 pair** — each model does the part it's good at,
+and the Agno agent orchestrates the handoff. The two never duplicate work.
+
+### Roles at a glance
+
+| Aspect | System 1 (Laya) | System 2 (Ollama LLM) |
+|---|---|---|
+| Speed | ~33 ms per call (single forward pass) | Seconds to minutes (auto-regressive) |
+| Output | Calibrated `P(true)` + confidence | Natural-language reasoning, tool calls |
+| Cost | Tiny — runs on CPU/MPS/CUDA | Heavy — VRAM-bound, GPU preferred |
+| Best at | "Is this phishing?" (binary, well-typed) | "Why?", "Explain it", "What should I do?" |
+| Failure mode | Confident but wrong on out-of-distribution input | Hallucinates explanations; vague scores |
+| Trigger | Every classification request | Only when a *reasoned answer* is needed |
+
+### How a request flows
+
+```mermaid
+flowchart TD
+    User([User email or CLI text]) --> A{Agno Agent<br/>System 2 — LLM}
+    A -->|pre-process<br/>summarise / extract| A
+    A -->|tool call:<br/>laya_predict noul| MCP[Laya MCP Server<br/>stdio]
+    MCP -->|HTTP / spawn| Laya[Laya Router<br/>System 1<br/>~33 ms]
+    Laya -->|P true, confidence, model| MCP
+    MCP -->|typed result| A
+    A -->|draft verdict, cite signals| Reply([Markdown reply:<br/>verdict + reasons + confidence])
+
+    A -.->|confidence &lt; threshold| Human[[Human review]]
+    Laya -.->|low-confidence case| A
+```
+
+Read it as a tight loop:
+
+1. **The LLM (System 2)** receives the raw email. It can pre-process —
+   strip quoted replies, extract the suspect URL, condense the body.
+2. **It calls Laya (System 1)** as a tool via the Laya MCP server with a
+   `noul` phishing question.
+3. **Laya returns** a calibrated `P(phishing)` and `confidence` in one
+   forward pass — no token decoding, no hallucination.
+4. **The LLM writes the verdict**, grounded in Laya's score and naming
+   the strongest phishing signals (sender domain, urgency cues, link
+   mismatch, …).
+5. **If Laya's confidence is below `PHISHING_THRESHOLD`** the agent
+   recommends human review instead of forcing a verdict.
+
+### Why the handoff matters
+
+- **Cheap routine, expensive reasoning.** Laya does the high-volume,
+  well-typed decision; the LLM only does the part that genuinely
+  benefits from autoregressive generation.
+- **Grounded explanations.** The LLM cannot invent a probability — it
+  must cite the `P(true)` Laya gave it. The verdict is anchored to a
+  calibrated score, not to the model's own mood.
+- **Independent failure modes.** If Laya mis-scores an adversarial
+  email, the LLM can flag "low confidence, please verify". If the LLM
+  hallucinates, Laya's score still gates the final threshold — a
+  hallucinated "definitely phishing" without a high `P(true)` is
+  visible to reviewers.
+- **Latency & cost.** Most requests skip a long LLM chain — for batch
+  scoring, `emaildetective detect` calls Laya directly with no LLM in
+  the loop at all.
+
+### End-to-end example
+
+```text
+input   : "Subject: URGENT - Verify your PayPal account
+           From: support@paypa1-security.com
+           Body: Click http://paypa1-login.example/verify"
+
+Laya    : noul("…is this a phishing attempt?") → P(true)=0.91, conf=0.78
+LLM     : "Phishing (high confidence). Strongest signals:
+           (1) sender domain 'paypa1-security.com' spoofs PayPal via
+           digit-substitution;
+           (2) urgency framing 'URGENT - Verify';
+           (3) link host 'paypa1-login.example' is unrelated to PayPal.
+           Recommend: do not click; report to IT."
+```
+
+Same pipeline, same `PHISHING_THRESHOLD`, same MCP server — only the
+mix of System 1 / System 2 changes based on whether the caller wants a
+number (`detect`) or a reasoned answer (`agent` / REST `/runs`).
+
