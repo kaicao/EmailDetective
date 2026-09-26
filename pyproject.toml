@@ -1,0 +1,43 @@
+[project]
+name = "emaildetective"
+version = "0.1.0"
+description = "Agno-powered agent that detects phishing content using Laya over Ollama."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"    # current laya needs 3.12
+dependencies = [
+    "agno[mcp]>=2.0.0",
+    "ollama>=0.5.0",
+    "openai>=1.80.0",
+    "python-dotenv>=1.0.1",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "laya>=0.3.20",
+    "fastapi>=0.115.0",
+    "uvicorn>=0.32.0",
+    "sqlalchemy[asyncio]>=2.0.0",
+]
+
+[project.optional-dependencies]
+mcp = [
+    "laya[mcp]>=0.3.20",
+]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+]
+
+[project.scripts]
+emaildetective = "emaildetective.main:main"
+
+[build-system]
+requires = ["uv_build>=0.12.7,<0.13.0"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "emaildetective"
+module-root = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"

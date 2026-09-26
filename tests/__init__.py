@@ -1,0 +1,2 @@
+"""EmailDetective test suite."""
+
